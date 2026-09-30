@@ -33,6 +33,9 @@ const OP_I64_CONST: u8 = 0x42;
 const OP_F32_CONST: u8 = 0x43;
 const OP_F64_CONST: u8 = 0x44;
 const OP_I32_EQZ: u8 = 0x45;
+const OP_I32_WRAP_I64: u8 = 0xA7;
+const OP_I32_TRUNC_F32_S: u8 = 0xA8;
+const OP_I32_TRUNC_F64_S: u8 = 0xAA;
 const OP_I32_LOAD: u8 = 0x28;
 const OP_I64_LOAD: u8 = 0x29;
 const OP_F32_LOAD: u8 = 0x2A;
@@ -403,9 +406,22 @@ fn emit_start(main_fn: &LirFunction, main_wasm_idx: u32, proc_exit_idx: u32) -> 
     code.push(OP_CALL);
     leb_u32(main_wasm_idx, &mut code);
 
-    if matches!(main_fn.ret_ty, LirType::Void) {
-        code.push(OP_I32_CONST);
-        leb_i32(0, &mut code);
+    // proc_exit only accepts an i32, so narrow any wider main result.
+    match &main_fn.ret_ty {
+        LirType::Void => {
+            code.push(OP_I32_CONST);
+            leb_i32(0, &mut code);
+        }
+        LirType::I64 => {
+            code.push(OP_I32_WRAP_I64);
+        }
+        LirType::F32 => {
+            code.push(OP_I32_TRUNC_F32_S);
+        }
+        LirType::F64 => {
+            code.push(OP_I32_TRUNC_F64_S);
+        }
+        _ => {}
     }
 
     code.push(OP_CALL);

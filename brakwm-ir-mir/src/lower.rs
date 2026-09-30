@@ -29,6 +29,32 @@ const VOID_SPAN: Span = Span {
     end: brakwm_core::SourceLoc::new(0, 0, 0),
 };
 
+/// Best-effort static type of an expression. Used to give statement-level
+/// temporaries a real type so float and i64 operands survive lowering.
+/// Comparison operators yield `Bool`; everything else falls back to `I32`.
+fn expr_ty(e: &HirExpr) -> MirType {
+    match e {
+        HirExpr::Float(_, _) => MirType::F64,
+        HirExpr::Bool(_, _) => MirType::Bool,
+        HirExpr::String(_, _) => MirType::String,
+        HirExpr::BinOp { op, lhs, .. } => match op {
+            HirBinOp::Eq | HirBinOp::Ne | HirBinOp::Lt | HirBinOp::Le | HirBinOp::Gt
+            | HirBinOp::Ge | HirBinOp::And | HirBinOp::Or => MirType::Bool,
+            // Arithmetic keeps the operand type so float stays float.
+            _ => {
+                let t = expr_ty(lhs);
+                if matches!(t, MirType::Void) { MirType::I32 } else { t }
+            }
+        },
+        HirExpr::UnOp { expr, .. } => {
+            let t = expr_ty(expr);
+            if matches!(t, MirType::Void) { MirType::I32 } else { t }
+        }
+        HirExpr::If { .. } | HirExpr::Block(_) | HirExpr::Match { .. } => MirType::I32,
+        _ => MirType::I32,
+    }
+}
+
 impl MirBuilder {
     fn new() -> Self {
         let mut b = Self {
@@ -136,8 +162,11 @@ impl MirBuilder {
                 });
             }
             HirExpr::BinOp { op, lhs, rhs, .. } => {
-                let l = self.lower_expr(lhs, MirType::Void)?;
-                let r = self.lower_expr(rhs, MirType::Void)?;
+                // Operands must carry their real type; a Void operand becomes
+                // an i32 local in LIR, which silently corrupts float math.
+                let opnd_ty = expr_ty(lhs);
+                let l = self.lower_expr(lhs, opnd_ty.clone())?;
+                let r = self.lower_expr(rhs, opnd_ty)?;
                 let bop = match op {
                     HirBinOp::Add => MirBinOp::Add,
                     HirBinOp::Sub => MirBinOp::Sub,
@@ -460,8 +489,12 @@ impl MirBuilder {
                 }
             }
             HirStmt::Expr(e, _) => {
-                let tmp = self.alloc_local("stmt_tmp", MirType::Void);
-                self.lower_expr_to(e, tmp, MirType::Void)?;
+                // Infer the expression's real type: a `Void` temp would be
+                // registered as i32 in LIR, which corrupts float and i64
+                // operands before they reach codegen.
+                let ty = expr_ty(e);
+                let tmp = self.alloc_local("stmt_tmp", ty.clone());
+                self.lower_expr_to(e, tmp, ty)?;
             }
             HirStmt::Return(v, span) => {
                 let value = match v {
