@@ -8,6 +8,7 @@ pub struct MirBuilder {
     blocks: Vec<MirBlock>,
     cur: BlockId,
     next_block: usize,
+    struct_tys: Vec<Option<String>>,
 }
 
 fn mir_ty(t: &HirType) -> MirType {
@@ -62,6 +63,7 @@ impl MirBuilder {
             blocks: Vec::new(),
             cur: 0,
             next_block: 0,
+            struct_tys: Vec::new(),
         };
         b.alloc_block("entry".into());
         b
@@ -70,7 +72,21 @@ impl MirBuilder {
     fn alloc_local(&mut self, name: &str, ty: MirType) -> LocalId {
         let id = self.locals.len();
         self.locals.push(MirLocal { name: name.to_string(), ty });
+        self.struct_tys.push(None);
         id
+    }
+
+    /// Struct type name for a local, tracked so field access knows which
+    /// layout to use. A bare `Named` local type is also accepted, which covers
+    /// locals declared with an explicit annotation.
+    fn struct_name_of(&self, id: LocalId) -> Option<String> {
+        if let Some(Some(n)) = self.struct_tys.get(id) {
+            return Some(n.clone());
+        }
+        match self.locals.get(id).map(|l| &l.ty) {
+            Some(MirType::Named(n)) if n != "void" => Some(n.clone()),
+            _ => None,
+        }
     }
 
     fn alloc_block(&mut self, name: String) -> BlockId {
@@ -87,6 +103,20 @@ impl MirBuilder {
     }
 
     fn emit(&mut self, inst: MirInst) {
+        // Propagate struct type info along plain register copies so that
+        // `let p = P { .. }` keeps the layout for later `p.field` access.
+        if let MirInst::Assign { dest, value, .. } = &inst {
+            let src = match value {
+                MirValue::Local(s) => self.struct_tys.get(*s).cloned().flatten(),
+                MirValue::StructInit { name, .. } => Some(name.clone()),
+                _ => None,
+            };
+            if let Some(name) = src {
+                if let Some(slot) = self.struct_tys.get_mut(*dest) {
+                    *slot = Some(name);
+                }
+            }
+        }
         self.blocks[self.cur].insts.push(inst);
     }
 
@@ -99,6 +129,22 @@ impl MirBuilder {
         };
         self.blocks[self.cur].terminator = term;
         self.blocks[self.cur].span = term_span;
+    }
+
+    /// True when the current block already ended with `return`, so a trailing
+    /// jump to a join block would be dead code.
+    fn cur_returned(&self) -> bool {
+        matches!(self.blocks[self.cur].terminator, MirTerminator::Return { .. })
+    }
+
+    /// Jump to a join block unless the current block already returned. Without
+    /// this, `if c { return 1; }` had its `return` overwritten by a jump and
+    /// the early exit silently stopped working.
+    fn jump_to(&mut self, target: BlockId) {
+        if self.cur_returned() {
+            return;
+        }
+        self.set_term(MirTerminator::Jump { target, span: VOID_SPAN });
     }
 
     // -------- expression lowering --------
@@ -254,22 +300,26 @@ impl MirBuilder {
                 }
                 if let HirExpr::Ident(name, _) = &**object {
                     let obj = self.find_local(name)?;
+                    // Resolve the struct type, not the variable name: using
+                    // the variable here made every field offset default to 0.
+                    let sname = self.struct_name_of(obj).unwrap_or_default();
                     self.emit(MirInst::Assign {
                         dest,
                         value: MirValue::GetField {
                             object: obj,
-                            name: name.clone(),
+                            name: sname,
                             field: field.clone(),
                         },
                         span: VOID_SPAN,
                     });
                 } else {
                     let obj = self.lower_expr(object, MirType::Void)?;
+                    let sname = self.struct_name_of(obj).unwrap_or_default();
                     self.emit(MirInst::Assign {
                         dest,
                         value: MirValue::GetField {
                             object: obj,
-                            name: String::new(),
+                            name: sname,
                             field: field.clone(),
                         },
                         span: VOID_SPAN,
@@ -279,11 +329,12 @@ impl MirBuilder {
             HirExpr::FieldAssign { object, field, value, .. } => {
                 let obj = self.lower_expr(object, MirType::Void)?;
                 let v = self.lower_expr(value, MirType::Void)?;
+                let sname = self.struct_name_of(obj).unwrap_or_default();
                 self.emit(MirInst::Assign {
                     dest,
                     value: MirValue::SetField {
                         object: obj,
-                        name: String::new(),
+                        name: sname,
                         field: field.clone(),
                         value: v,
                     },
@@ -301,6 +352,9 @@ impl MirBuilder {
                     value: MirValue::StructInit { name: name.clone(), fields: fids },
                     span: VOID_SPAN,
                 });
+                if let Some(slot) = self.struct_tys.get_mut(dest) {
+                    *slot = Some(name.clone());
+                }
             }
             HirExpr::EnumInit { enum_name, variant, args, .. } => {
                 let mut arg_ids = Vec::new();
@@ -319,7 +373,7 @@ impl MirBuilder {
                 });
             }
             HirExpr::Match { expr, arms, .. } => {
-                let scrutinee = self.lower_expr(expr, MirType::Void)?;
+                let scrutinee = self.lower_expr(expr, expr_ty(expr))?;
                 let after = self.alloc_block("match_after".into());
                 self.lower_match(scrutinee, arms, after, dest);
             }
@@ -362,31 +416,35 @@ impl MirBuilder {
     }
 
     fn lower_match(&mut self, scrutinee: LocalId, arms: &[(HirPattern, HirExpr)], after: BlockId, dest: LocalId) {
-        let default_block = self.alloc_block("match_default".into());
+        // Each testable arm gets its own continuation block. Sharing a single
+        // `default` block made every arm overwrite the previous arm's
+        // terminator, silently dropping all but the first test.
         for (pat, body) in arms {
             match pat {
-                HirPattern::Wildcard => {
-                    self.cur = default_block;
-                    self.lower_expr_to(body, dest, MirType::Void).unwrap_or(());
+                HirPattern::Wildcard | HirPattern::Binding(_) => {
+                    if let HirPattern::Binding(name) = pat {
+                        let bind = self.alloc_local(name, MirType::I32);
+                        self.emit(MirInst::Assign {
+                            dest: bind,
+                            value: MirValue::Local(scrutinee),
+                            span: VOID_SPAN,
+                        });
+                    }
+                    self.lower_expr_to(body, dest, expr_ty(body)).unwrap_or(());
                     self.set_term(MirTerminator::Jump { target: after, span: VOID_SPAN });
-                    self.cur = default_block;
-                    return;
-                }
-                HirPattern::Binding(name) => {
-                    let bind = self.alloc_local(name, MirType::I32);
-                    self.emit(MirInst::Assign {
-                        dest: bind,
-                        value: MirValue::Local(scrutinee),
-                        span: VOID_SPAN,
-                    });
-                    self.cur = default_block;
-                    self.lower_expr_to(body, dest, MirType::Void).unwrap_or(());
-                    self.set_term(MirTerminator::Jump { target: after, span: VOID_SPAN });
-                    self.cur = default_block;
-                    return;
+                    // Nothing below can be reached; give it a dead block so
+                    // later arms never append to a terminated block.
+                    self.cur = self.alloc_block("match_dead".into());
+                    break;
                 }
                 HirPattern::Literal(lit) => {
-                    let lit_id = self.alloc_local("pat_lit", MirType::I32);
+                    let lty = match lit {
+                        HirLiteral::Int(_) => MirType::I32,
+                        HirLiteral::Bool(_) => MirType::Bool,
+                        HirLiteral::Float(_) => MirType::F64,
+                        HirLiteral::Str(_) => MirType::String,
+                    };
+                    let lit_id = self.alloc_local("pat_lit", lty);
                     self.emit(MirInst::Assign {
                         dest: lit_id,
                         value: match lit {
@@ -407,17 +465,18 @@ impl MirBuilder {
                         },
                         span: VOID_SPAN,
                     });
+                    let next = self.alloc_block("match_test".into());
                     let then = self.alloc_block("match_arm".into());
                     self.set_term(MirTerminator::Branch {
                         cond,
                         then,
-                        else_: default_block,
+                        else_: next,
                         span: VOID_SPAN,
                     });
                     self.cur = then;
-                    self.lower_expr_to(body, dest, MirType::Void).unwrap_or(());
+                    self.lower_expr_to(body, dest, expr_ty(body)).unwrap_or(());
                     self.set_term(MirTerminator::Jump { target: after, span: VOID_SPAN });
-                    self.cur = default_block;
+                    self.cur = next;
                 }
                 HirPattern::Variant { enum_name, variant, bindings } => {
                     let tag_cond = self.alloc_local("tag_cond", MirType::Bool);
@@ -430,24 +489,25 @@ impl MirBuilder {
                         },
                         span: VOID_SPAN,
                     });
+                    let next = self.alloc_block("match_test".into());
                     let then = self.alloc_block("match_arm".into());
                     self.set_term(MirTerminator::Branch {
                         cond: tag_cond,
                         then,
-                        else_: default_block,
+                        else_: next,
                         span: VOID_SPAN,
                     });
                     self.cur = then;
-                    // bind payload args (fieldless for now)
                     for b in bindings {
                         self.alloc_local(b, MirType::I32);
                     }
-                    self.lower_expr_to(body, dest, MirType::Void).unwrap_or(());
+                    self.lower_expr_to(body, dest, expr_ty(body)).unwrap_or(());
                     self.set_term(MirTerminator::Jump { target: after, span: VOID_SPAN });
-                    self.cur = default_block;
+                    self.cur = next;
                 }
             }
         }
+        // No arm matched: fall through the join block.
         self.set_term(MirTerminator::Jump { target: after, span: VOID_SPAN });
         self.cur = after;
     }
@@ -519,12 +579,12 @@ impl MirBuilder {
                 self.cur = then_block;
                 self.lower_block(then);
                 let after = self.alloc_block("if_after".into());
-                self.set_term(MirTerminator::Jump { target: after, span: VOID_SPAN });
+                self.jump_to(after);
                 self.cur = else_block;
                 if let Some(e) = else_ {
                     self.lower_block(e);
                 }
-                self.set_term(MirTerminator::Jump { target: after, span: VOID_SPAN });
+                self.jump_to(after);
                 self.cur = after;
             }
             HirStmt::While { cond, body, .. } => {
@@ -717,5 +777,58 @@ mod tests {
         }
         let total_insts: usize = m.functions.iter().flat_map(|f| &f.blocks).map(|b| b.insts.len()).sum();
         assert!(total_insts > 0, "no instructions were lowered");
+    }
+
+    /// Every arm of a multi-arm match must be reachable through its own test
+    /// block. Sharing one continuation block let later arms overwrite earlier
+    /// terminators, so only the first test ever ran.
+    #[test]
+    fn lowers_multi_arm_match() {
+        let m = lower_mir("fn g(n: i32) -> i32 { match n { 0 => 10, 1 => 20, 2 => 30, _ => 99 } }");
+        let f = &m.functions[0];
+        for block in &f.blocks {
+            assert!(
+                !matches!(block.terminator, MirTerminator::Unreachable),
+                "block {} of {} has no terminator",
+                block.id,
+                f.name
+            );
+        }
+        let tests = f
+            .blocks
+            .iter()
+            .filter(|b| matches!(b.terminator, MirTerminator::Branch { .. }))
+            .count();
+        assert_eq!(tests, 3, "expected one branch per literal arm, got {tests}");
+    }
+
+    #[test]
+    fn lowers_early_return_without_extra_jump() {
+        let m = lower_mir("fn f(n: i32) -> i32 { if n > 0 { return 7; } 0 }");
+        let f = &m.functions[0];
+        let then_block = f.blocks.iter().find(|b| b.name == "if_then").expect("if_then block");
+        assert!(
+            matches!(then_block.terminator, MirTerminator::Return { .. }),
+            "early return must survive, got {:?}",
+            then_block.terminator
+        );
+    }
+
+    #[test]
+    fn struct_field_access_carries_type_name() {
+        let m = lower_mir("struct P { x: i32, y: i32 } fn main() -> i32 { let p = P { x: 1, y: 2 }; p.x + p.y }");
+        let f = m.functions.iter().find(|f| f.name == "main").expect("main");
+        let has_named_field = f.blocks.iter().any(|b| {
+            b.insts.iter().any(|i| {
+                matches!(
+                    i,
+                    MirInst::Assign {
+                        value: MirValue::GetField { name, .. },
+                        ..
+                    } if name == "P"
+                )
+            })
+        });
+        assert!(has_named_field, "GetField must record the struct type name, not the variable name");
     }
 }

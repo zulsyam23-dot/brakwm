@@ -632,13 +632,19 @@ fn emit_block(f: &LirFunction, program: &LirProgram, bi: usize, ctx: &FnCtx) -> 
             Op::Neg => {
                 let d = inst.dest.unwrap();
                 let a = reg(&inst.operands[0]);
-                get(&mut out, a);
                 let t = vt(&f.reg_types[d]);
                 match t {
-                    F32 | F64 => out.push(neg_op(t)),
+                    F32 | F64 => {
+                        get(&mut out, a);
+                        out.push(neg_op(t));
+                    }
                     _ => {
+                        // i32.sub computes (second) - (top), so the zero must
+                        // be pushed before the operand to get 0 - a. Pushing
+                        // the operand first yielded a - 0, i.e. no negation.
                         out.push(OP_I32_CONST);
                         leb_i32(0, &mut out);
+                        get(&mut out, a);
                         out.push(0x6B); // 0 - a
                     }
                 }
@@ -1051,6 +1057,10 @@ mod tests {
     use brakwm_ir_lir::lower::LirLower;
 
     fn compile(src: &str) -> Vec<u8> {
+        emit_module_bytes(&build_lir(src)).unwrap()
+    }
+
+    fn build_lir(src: &str) -> LirProgram {
         let sm = SourceMap::new("t.brk", src);
         let mut p = Parser::new();
         let ast = p.parse_source(&sm).unwrap();
@@ -1059,8 +1069,30 @@ mod tests {
         let mir = ml.lower(hir).unwrap();
         let mut ll = LirLower::new();
         ll.set_file_id(0);
-        let lir = ll.lower(mir);
-        emit_module_bytes(&lir).unwrap()
+        ll.lower(mir)
+    }
+
+    fn contains(haystack: &[u8], needle: &[u8]) -> bool {
+        haystack.windows(needle.len()).any(|w| w == needle)
+    }
+
+    /// Return the body bytes of the first function in the code section.
+    fn first_code_body(data: &[u8]) -> Option<Vec<u8>> {
+        let mut i = 8usize;
+        while i < data.len() {
+            let id = data[i];
+            let (size, no) = read_leb(&data[i + 1..]);
+            let body = &data[i + 1 + no..];
+            if id == 10 {
+                let (_count, co) = read_leb(body);
+                let o = co;
+                let (bsize, so) = read_leb(&body[o..]);
+                let start = o + so;
+                return Some(body[start..start + bsize as usize].to_vec());
+            }
+            i = i + 1 + no + size as usize;
+        }
+        None
     }
 
     /// Scan the export section for a named export.
@@ -1189,5 +1221,38 @@ mod tests {
         );
         assert!(has_export(&data, "fib"));
         assert!(has_export(&data, "_start"));
+    }
+
+    /// `i32.sub` pops (top) last, so `0 - a` requires pushing the zero before
+    /// the operand. The reversed order silently produced `a - 0`, making
+    /// unary minus a no-op for every negative literal.
+    #[test]
+    fn negation_pushes_zero_before_operand() {
+        let lir = build_lir("fn main() -> i32 { -1 }");
+        let data = emit_module_bytes(&lir).unwrap();
+        // main is the first defined function; find its body.
+        let body = first_code_body(&data).expect("main body");
+        // local.get 2, i32.const 0, i32.sub  == wrong order
+        let wrong = [
+            &[0x20, 0x02][..],
+            &[0x41, 0x00][..],
+            &[0x6b][..],
+        ]
+        .concat();
+        // i32.const 0, local.get 2, i32.sub  == correct order
+        let right = [
+            &[0x41, 0x00][..],
+            &[0x20, 0x02][..],
+            &[0x6b][..],
+        ]
+        .concat();
+        assert!(
+            contains(&body, &right),
+            "expected i32.const 0 then local.get 2 then i32.sub"
+        );
+        assert!(
+            !contains(&body, &wrong),
+            "operand must not be pushed before the zero constant"
+        );
     }
 }

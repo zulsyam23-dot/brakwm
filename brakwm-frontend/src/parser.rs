@@ -40,6 +40,20 @@ impl Parser {
         &self.tokens[idx].kind
     }
 
+    fn peek3(&self) -> &TokenKind {
+        let idx = (self.pos + 2).min(self.tokens.len() - 1);
+        &self.tokens[idx].kind
+    }
+
+    /// Distinguish a struct literal `P { x: 1 }` from a block that merely
+    /// follows an identifier, as in `if c { f(1) }`. Only `Ident` followed by
+    /// `Colon` inside the braces marks a literal.
+    fn at_struct_literal(&self) -> bool {
+        matches!(self.peek(), TokenKind::LBrace)
+            && matches!(self.peek2(), TokenKind::Ident(_))
+            && matches!(self.peek3(), TokenKind::Colon)
+    }
+
     fn advance(&mut self) -> TokenKind {
         let t = self.tokens[self.pos].kind.clone();
         if self.pos + 1 < self.tokens.len() {
@@ -618,6 +632,22 @@ impl Parser {
             }
             TokenKind::Ident(name) => {
                 self.advance();
+                if self.at_struct_literal() {
+                    self.advance(); // consume `{`
+                    let mut fields = Vec::new();
+                    while !self.at(&TokenKind::RBrace) && !self.at(&TokenKind::Eof) {
+                        let fname: Ident = self.ident()?.into();
+                        self.expect(TokenKind::Colon)?;
+                        let value = self.parse_expr(0)?;
+                        fields.push((fname, value));
+                        if !self.eat(&TokenKind::Comma) {
+                            break;
+                        }
+                    }
+                    self.expect(TokenKind::RBrace)?;
+                    let name: Ident = name.into();
+                    return Ok(Expr::StructInit { name, fields, span: self.span() });
+                }
                 Ok(Expr::Ident(name, self.span()))
             }
             TokenKind::LParen => {
@@ -676,9 +706,14 @@ impl Parser {
             }
             TokenKind::Match => {
                 self.advance();
-                self.expect(TokenKind::LParen)?;
-                let expr = self.parse_expr(0)?;
-                self.expect(TokenKind::RParen)?;
+                // Parentheses are optional, matching `if`: `match n { .. }`.
+                let expr = if self.eat(&TokenKind::LParen) {
+                    let e = self.parse_expr(0)?;
+                    self.expect(TokenKind::RParen)?;
+                    e
+                } else {
+                    self.parse_match_scrutinee()?
+                };
                 self.expect(TokenKind::LBrace)?;
                 let mut arms = Vec::new();
                 while !self.at(&TokenKind::RBrace) && !self.at(&TokenKind::Eof) {
@@ -697,6 +732,44 @@ impl Parser {
             }
             other => Err(format!("unexpected token {other} in expression").into()),
         }
+    }
+
+    /// Parse a match scrutinee without consuming the `{` that opens the match
+    /// body. A struct literal is never valid here, so the postfix chain stops
+    /// at `{` rather than trying to read it as a struct literal.
+    fn parse_match_scrutinee(&mut self) -> Result<Expr> {
+        let mut lhs = self.parse_prefix()?;
+        loop {
+            if self.at(&TokenKind::Dot) {
+                self.advance();
+                let field = self.ident()?.into();
+                lhs = Expr::Field {
+                    object: Box::new(lhs),
+                    field,
+                    span: self.span(),
+                };
+                continue;
+            }
+            if self.at(&TokenKind::LParen) {
+                self.advance();
+                let mut args = Vec::new();
+                while !self.at(&TokenKind::RParen) && !self.at(&TokenKind::Eof) {
+                    args.push(self.parse_expr(0)?);
+                    if !self.eat(&TokenKind::Comma) {
+                        break;
+                    }
+                }
+                self.expect(TokenKind::RParen)?;
+                lhs = Expr::Call {
+                    callee: Box::new(lhs),
+                    args,
+                    span: self.span(),
+                };
+                continue;
+            }
+            break;
+        }
+        Ok(lhs)
     }
 
     fn parse_pattern(&mut self) -> Result<Pattern> {
@@ -727,6 +800,40 @@ impl Parser {
                 } else {
                     Ok(Pattern::Binding(name))
                 }
+            }
+            TokenKind::Int(v) => {
+                self.advance();
+                Ok(Pattern::Literal(Literal::Int(v)))
+            }
+            TokenKind::Float(v) => {
+                self.advance();
+                Ok(Pattern::Literal(Literal::Float(v)))
+            }
+            TokenKind::Minus => {
+                self.advance();
+                match self.peek().clone() {
+                    TokenKind::Int(v) => {
+                        self.advance();
+                        Ok(Pattern::Literal(Literal::Int(-v)))
+                    }
+                    TokenKind::Float(v) => {
+                        self.advance();
+                        Ok(Pattern::Literal(Literal::Float(-v)))
+                    }
+                    other => Err(format!("unexpected token {other} after `-` in pattern").into()),
+                }
+            }
+            TokenKind::True => {
+                self.advance();
+                Ok(Pattern::Literal(Literal::Bool(true)))
+            }
+            TokenKind::False => {
+                self.advance();
+                Ok(Pattern::Literal(Literal::Bool(false)))
+            }
+            TokenKind::Str(s) => {
+                self.advance();
+                Ok(Pattern::Literal(Literal::Str(s)))
             }
             other => Err(format!("unexpected token {other} in pattern").into()),
         }
@@ -770,6 +877,37 @@ mod tests {
     #[test]
     fn parses_call() {
         let p = parse("fn main() -> i32 { add(10, 20) }");
+        assert_eq!(p.items.len(), 1);
+    }
+
+    #[test]
+    fn parses_match_without_parens() {
+        let p = parse("fn g(n: i32) -> i32 { match n { 0 => 1, _ => 2 } }");
+        assert_eq!(p.items.len(), 1);
+    }
+
+    #[test]
+    fn parses_match_with_parens() {
+        let p = parse("fn g(n: i32) -> i32 { match (n) { 0 => 1, _ => 2 } }");
+        assert_eq!(p.items.len(), 1);
+    }
+
+    #[test]
+    fn parses_struct_literal() {
+        let p = parse("struct P { x: i32, y: i32 } fn main() -> i32 { let p = P { x: 1, y: 2 }; p.x }");
+        assert_eq!(p.items.len(), 2);
+    }
+
+    #[test]
+    fn struct_literal_does_not_swallow_blocks() {
+        // `if c { f(1) }` must stay an if-block, not a struct literal.
+        let p = parse("fn main() -> i32 { if 1 > 0 { 5 } else { 6 } }");
+        assert_eq!(p.items.len(), 1);
+    }
+
+    #[test]
+    fn parses_negative_and_float_patterns() {
+        let p = parse("fn g(n: i32) -> i32 { match n { -1 => 1, 0 => 2, _ => 3 } }");
         assert_eq!(p.items.len(), 1);
     }
 }
