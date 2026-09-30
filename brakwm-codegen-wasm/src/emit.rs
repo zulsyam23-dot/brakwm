@@ -1,8 +1,8 @@
-use std::collections::HashMap;
 use brakwm_core::Result;
 use brakwm_ir_lir::lir::{
-    BlockId, LirFunction, LirOperand, LirOpcode, LirProgram, LirType, VirtReg,
+    BlockId, LirFunction, LirOpcode, LirOperand, LirProgram, LirType, VirtReg,
 };
+use std::collections::HashMap;
 
 use crate::encode::*;
 
@@ -180,7 +180,10 @@ pub fn emit_module_bytes(program: &LirProgram) -> Result<Vec<u8>> {
     // through the standard entry point.
     let main_idx = program.functions.iter().position(|f| f.name == "main");
     let has_start = main_idx.is_some() && !program.functions.iter().any(|f| f.name == "_start");
-    let declares_proc_exit = program.extern_functions.iter().any(|e| e.name == "proc_exit");
+    let declares_proc_exit = program
+        .extern_functions
+        .iter()
+        .any(|e| e.name == "proc_exit");
     let synth_proc_exit = has_start && !declares_proc_exit;
 
     let n_program_externs = program.extern_functions.len() as u32;
@@ -213,7 +216,10 @@ pub fn emit_module_bytes(program: &LirProgram) -> Result<Vec<u8>> {
     // `_start` has type `() -> ()` and `proc_exit` has type `(i32) -> ()`.
     let proc_exit_type_idx = if synth_proc_exit {
         Some(add_type(
-            FuncType { params: vec![I32], results: vec![] },
+            FuncType {
+                params: vec![I32],
+                results: vec![],
+            },
             &mut types,
             &mut type_key,
         ))
@@ -222,7 +228,10 @@ pub fn emit_module_bytes(program: &LirProgram) -> Result<Vec<u8>> {
     };
     let start_type_idx = if has_start {
         add_type(
-            FuncType { params: vec![], results: vec![] },
+            FuncType {
+                params: vec![],
+                results: vec![],
+            },
             &mut types,
             &mut type_key,
         )
@@ -344,11 +353,7 @@ pub fn emit_module_bytes(program: &LirProgram) -> Result<Vec<u8>> {
         }
         if has_start {
             let mi = main_idx.unwrap();
-            let body = emit_start(
-                &program.functions[mi],
-                n_imports + mi as u32,
-                proc_exit_idx,
-            );
+            let body = emit_start(&program.functions[mi], n_imports + mi as u32, proc_exit_idx);
             leb_u32(body.len() as u32, &mut p);
             p.extend_from_slice(&body);
         }
@@ -506,7 +511,7 @@ fn emit_function(
     } else {
         code.push(OP_LOOP);
         code.push(0x40); // void blocktype
-        // open n blocks
+                         // open n blocks
         for _ in 0..n {
             code.push(OP_BLOCK);
             code.push(0x40);
@@ -521,7 +526,7 @@ fn emit_function(
             leb_u32((n - 1 - i) as u32, &mut code);
         }
         leb_u32(0, &mut code); // default
-        // bodies interleaved with ends
+                               // bodies interleaved with ends
         for i in (0..n).rev() {
             code.push(OP_END); // end b_i
             let body = emit_block(f, program, i, &ctx);
@@ -618,7 +623,15 @@ fn emit_block(f: &LirFunction, program: &LirProgram, bi: usize, ctx: &FnCtx) -> 
                     _ => {}
                 }
             }
-            Op::Add | Op::Sub | Op::Mul | Op::Div | Op::Mod | Op::FAdd | Op::FSub | Op::FMul | Op::FDiv => {
+            Op::Add
+            | Op::Sub
+            | Op::Mul
+            | Op::Div
+            | Op::Mod
+            | Op::FAdd
+            | Op::FSub
+            | Op::FMul
+            | Op::FDiv => {
                 let d = inst.dest.unwrap();
                 let a = reg(&inst.operands[0]);
                 let b = reg(&inst.operands[1]);
@@ -763,8 +776,7 @@ fn emit_block(f: &LirFunction, program: &LirProgram, bi: usize, ctx: &FnCtx) -> 
                 let name = label(&inst.operands[2]);
                 let fields = struct_fields(program, &name);
                 let off = fields.get(&fname).copied().unwrap_or(0);
-                let ft = field_ty(program, &name, &fname)
-                    .unwrap_or_else(|| f.reg_types[d].clone());
+                let ft = field_ty(program, &name, &fname).unwrap_or_else(|| f.reg_types[d].clone());
                 get(&mut out, obj);
                 out.push(OP_I32_CONST);
                 leb_i32(off as i32, &mut out);
@@ -782,8 +794,8 @@ fn emit_block(f: &LirFunction, program: &LirProgram, bi: usize, ctx: &FnCtx) -> 
                 let name = label(&inst.operands[3]);
                 let fields = struct_fields(program, &name);
                 let off = fields.get(&fname).copied().unwrap_or(0);
-                let ft = field_ty(program, &name, &fname)
-                    .unwrap_or_else(|| f.reg_types[val].clone());
+                let ft =
+                    field_ty(program, &name, &fname).unwrap_or_else(|| f.reg_types[val].clone());
                 get(&mut out, obj);
                 out.push(OP_I32_CONST);
                 leb_i32(off as i32, &mut out);
@@ -1053,8 +1065,8 @@ mod tests {
     use brakwm_core::SourceMap;
     use brakwm_frontend::parser::Parser;
     use brakwm_ir_hir::lower::HirLower;
-    use brakwm_ir_mir::lower::MirLower;
     use brakwm_ir_lir::lower::LirLower;
+    use brakwm_ir_mir::lower::MirLower;
 
     fn compile(src: &str) -> Vec<u8> {
         emit_module_bytes(&build_lir(src)).unwrap()
@@ -1233,19 +1245,9 @@ mod tests {
         // main is the first defined function; find its body.
         let body = first_code_body(&data).expect("main body");
         // local.get 2, i32.const 0, i32.sub  == wrong order
-        let wrong = [
-            &[0x20, 0x02][..],
-            &[0x41, 0x00][..],
-            &[0x6b][..],
-        ]
-        .concat();
+        let wrong = [&[0x20, 0x02][..], &[0x41, 0x00][..], &[0x6b][..]].concat();
         // i32.const 0, local.get 2, i32.sub  == correct order
-        let right = [
-            &[0x41, 0x00][..],
-            &[0x20, 0x02][..],
-            &[0x6b][..],
-        ]
-        .concat();
+        let right = [&[0x41, 0x00][..], &[0x20, 0x02][..], &[0x6b][..]].concat();
         assert!(
             contains(&body, &right),
             "expected i32.const 0 then local.get 2 then i32.sub"
@@ -1253,6 +1255,45 @@ mod tests {
         assert!(
             !contains(&body, &wrong),
             "operand must not be pushed before the zero constant"
+        );
+    }
+
+    /// A struct value is a pointer into the shadow stack, and the callee resets
+    /// that stack on return. The caller has to allocate its own copy, so
+    /// `main` must contain a stack-pointer bump for the aggregate it receives.
+    /// `main` is declared first so it is the first entry in the code section.
+    #[test]
+    fn caller_reallocates_returned_aggregate() {
+        let lir = build_lir(
+            "struct P { x: i32 }\n\
+             fn main() -> i32 { let a = make(1); a.x }\n\
+             fn make(v: i32) -> P { P { x: v } }",
+        );
+        let data = emit_module_bytes(&lir).unwrap();
+        let body = first_code_body(&data).expect("main body");
+        // global.get 0, i32.const 4, i32.sub == reserving four shadow-stack bytes
+        let stack_bump = [&[0x23, 0x00][..], &[0x41, 0x04][..], &[0x6b][..]].concat();
+        assert!(
+            contains(&body, &stack_bump),
+            "main must copy the returned struct into its own stack slot"
+        );
+    }
+
+    /// An enum discriminant is a payload field, so it has to be materialised
+    /// into a local before StructInit reads it. Passing the literal straight
+    /// through made every variant collapse to register 0.
+    #[test]
+    fn enum_init_stores_the_tag_before_building_the_value() {
+        let lir =
+            build_lir("enum Color { Red, Green } fn main() -> i32 { let c = Color.Green; 0 }");
+        let data = emit_module_bytes(&lir).unwrap();
+        let body = first_code_body(&data).expect("main body");
+        // i32.const 1 must appear as a plain local.set before the struct store,
+        // which is the discriminant being parked in its own register.
+        let tag_local_set = [&[0x41, 0x01][..], &[0x21][..]].concat();
+        assert!(
+            contains(&body, &tag_local_set),
+            "the variant tag must be written to a local before StructInit"
         );
     }
 }

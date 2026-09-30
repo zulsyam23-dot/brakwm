@@ -1,6 +1,6 @@
-use brakwm_core::Result;
-use brakwm_ir_lir::lir::{BlockId, LirOperand, LirOpcode, LirProgram, LirType, VirtReg};
 use brakwm_codegen_traits::CodegenBackend;
+use brakwm_core::Result;
+use brakwm_ir_lir::lir::{BlockId, LirOpcode, LirOperand, LirProgram, LirType, VirtReg};
 
 use crate::common::*;
 
@@ -135,7 +135,10 @@ fn escape_string(s: &str) -> String {
 /// which is correct for any CFG (reducible or not).
 fn emit_function(func: &brakwm_ir_lir::lir::LirFunction, program: &LirProgram) -> String {
     let mut out = String::new();
-    out.push_str(&format!("  (func ${} (export \"{}\")", func.name, func.name));
+    out.push_str(&format!(
+        "  (func ${} (export \"{}\")",
+        func.name, func.name
+    ));
 
     for p in &func.params {
         out.push_str(&format!(
@@ -237,10 +240,21 @@ fn emit_block_insts(
                     }
                     LirOperand::ImmF64(v) => {
                         let op = const_op(wasm_type(&func.reg_types[d]));
-                        emit!(out, "(local.set {} ({} {}))", reg_name(d), op, fmt_float(*v));
+                        emit!(
+                            out,
+                            "(local.set {} ({} {}))",
+                            reg_name(d),
+                            op,
+                            fmt_float(*v)
+                        );
                     }
                     LirOperand::Reg(s) => {
-                        emit!(out, "(local.set {} (local.get {}))", reg_name(d), reg_name(*s));
+                        emit!(
+                            out,
+                            "(local.set {} (local.get {}))",
+                            reg_name(d),
+                            reg_name(*s)
+                        );
                     }
                     LirOperand::StringRef(i) => {
                         let addr = layout_strings(program)
@@ -268,7 +282,11 @@ fn emit_block_insts(
                 emit!(
                     out,
                     "(local.set {} ({} {} (local.get {}) (local.get {})))",
-                    reg_name(d), t, op, reg_name(a), reg_name(b)
+                    reg_name(d),
+                    t,
+                    op,
+                    reg_name(a),
+                    reg_name(b)
                 );
             }
             LirOpcode::FAdd | LirOpcode::FSub | LirOpcode::FMul | LirOpcode::FDiv => {
@@ -286,7 +304,11 @@ fn emit_block_insts(
                 emit!(
                     out,
                     "(local.set {} ({} {} (local.get {}) (local.get {})))",
-                    reg_name(d), t, op, reg_name(a), reg_name(b)
+                    reg_name(d),
+                    t,
+                    op,
+                    reg_name(a),
+                    reg_name(b)
                 );
             }
             LirOpcode::Neg => {
@@ -295,14 +317,23 @@ fn emit_block_insts(
                 let t = wasm_type(&func.reg_types[d]);
                 match t {
                     "f32" | "f64" => {
-                        emit!(out, "(local.set {} ({} neg (local.get {})))", reg_name(d), t, reg_name(a));
+                        emit!(
+                            out,
+                            "(local.set {} ({} neg (local.get {})))",
+                            reg_name(d),
+                            t,
+                            reg_name(a)
+                        );
                     }
                     _ => {
                         let op = const_op(t);
                         emit!(
                             out,
                             "(local.set {} ({} sub ({} 0) (local.get {})))",
-                            reg_name(d), t, op, reg_name(a)
+                            reg_name(d),
+                            t,
+                            op,
+                            reg_name(a)
                         );
                     }
                 }
@@ -310,7 +341,12 @@ fn emit_block_insts(
             LirOpcode::Not => {
                 let d = inst.dest.unwrap();
                 let a = reg_of(&inst.operands[0]);
-                emit!(out, "(local.set {} (i32.eqz (local.get {})))", reg_name(d), reg_name(a));
+                emit!(
+                    out,
+                    "(local.set {} (i32.eqz (local.get {})))",
+                    reg_name(d),
+                    reg_name(a)
+                );
             }
             LirOpcode::And | LirOpcode::Or | LirOpcode::Xor | LirOpcode::Shl | LirOpcode::Shr => {
                 let d = inst.dest.unwrap();
@@ -328,7 +364,11 @@ fn emit_block_insts(
                 emit!(
                     out,
                     "(local.set {} ({} {} (local.get {}) (local.get {})))",
-                    reg_name(d), t, op, reg_name(a), reg_name(b)
+                    reg_name(d),
+                    t,
+                    op,
+                    reg_name(a),
+                    reg_name(b)
                 );
             }
             LirOpcode::Cmp => {
@@ -336,7 +376,12 @@ fn emit_block_insts(
                 let b = reg_of(&inst.operands[1]);
                 pending_cmp = Some((a, b));
             }
-            LirOpcode::SetEq | LirOpcode::SetNe | LirOpcode::SetLt | LirOpcode::SetLe | LirOpcode::SetGt | LirOpcode::SetGe => {
+            LirOpcode::SetEq
+            | LirOpcode::SetNe
+            | LirOpcode::SetLt
+            | LirOpcode::SetLe
+            | LirOpcode::SetGt
+            | LirOpcode::SetGe => {
                 let d = inst.dest.unwrap();
                 let (a, b) = pending_cmp.take().unwrap_or((0, 0));
                 let at = wasm_type(&func.reg_types[a]);
@@ -357,14 +402,24 @@ fn emit_block_insts(
                 emit!(
                     out,
                     "(local.set {} (i32.{}{} (local.get {}) (local.get {})))",
-                    reg_name(d), rel, signed, reg_name(a), reg_name(b)
+                    reg_name(d),
+                    rel,
+                    signed,
+                    reg_name(a),
+                    reg_name(b)
                 );
             }
             LirOpcode::Load => {
                 let d = inst.dest.unwrap();
                 let a = reg_of(&inst.operands[0]);
                 let t = wasm_type(&func.reg_types[d]);
-                emit!(out, "(local.set {} ({} load (local.get {})))", reg_name(d), t, reg_name(a));
+                emit!(
+                    out,
+                    "(local.set {} ({} load (local.get {})))",
+                    reg_name(d),
+                    t,
+                    reg_name(a)
+                );
             }
             LirOpcode::Store => {
                 let addr = reg_of(&inst.operands[0]);
@@ -373,7 +428,9 @@ fn emit_block_insts(
                 emit!(
                     out,
                     "({}.store (local.get {}) (local.get {}))",
-                    t, reg_name(addr), reg_name(val)
+                    t,
+                    reg_name(addr),
+                    reg_name(val)
                 );
             }
             LirOpcode::Alloca => {
@@ -403,12 +460,15 @@ fn emit_block_insts(
                     let fname = field_of(&inst.operands[i]);
                     let val = reg_of(&inst.operands[i + 1]);
                     let off = fields.get(&fname).copied().unwrap_or(0);
-                    let ft = field_ty(program, &name, &fname).unwrap_or_else(|| func.reg_types[val].clone());
+                    let ft = field_ty(program, &name, &fname)
+                        .unwrap_or_else(|| func.reg_types[val].clone());
                     let t = wasm_type(&ft);
                     emit!(
                         out,
                         "({}.store (i32.add (local.get {}) (i32.const {off})) (local.get {}))",
-                        t, reg_name(d), reg_name(val)
+                        t,
+                        reg_name(d),
+                        reg_name(val)
                     );
                     i += 2;
                 }
@@ -420,12 +480,15 @@ fn emit_block_insts(
                 let name = label_of(&inst.operands[2]);
                 let fields = struct_fields(program, &name);
                 let off = fields.get(&fname).copied().unwrap_or(0);
-                let ft = field_ty(program, &name, &fname).unwrap_or_else(|| func.reg_types[d].clone());
+                let ft =
+                    field_ty(program, &name, &fname).unwrap_or_else(|| func.reg_types[d].clone());
                 let t = wasm_type(&ft);
                 emit!(
                     out,
                     "(local.set {} ({} load (i32.add (local.get {}) (i32.const {off}))))",
-                    reg_name(d), t, reg_name(obj)
+                    reg_name(d),
+                    t,
+                    reg_name(obj)
                 );
             }
             LirOpcode::SetField => {
@@ -435,12 +498,15 @@ fn emit_block_insts(
                 let name = label_of(&inst.operands[3]);
                 let fields = struct_fields(program, &name);
                 let off = fields.get(&fname).copied().unwrap_or(0);
-                let ft = field_ty(program, &name, &fname).unwrap_or_else(|| func.reg_types[val].clone());
+                let ft =
+                    field_ty(program, &name, &fname).unwrap_or_else(|| func.reg_types[val].clone());
                 let t = wasm_type(&ft);
                 emit!(
                     out,
                     "({}.store (i32.add (local.get {}) (i32.const {off})) (local.get {}))",
-                    t, reg_name(obj), reg_name(val)
+                    t,
+                    reg_name(obj),
+                    reg_name(val)
                 );
             }
             LirOpcode::Call => {
@@ -464,14 +530,26 @@ fn emit_block_insts(
                 }
             }
             LirOpcode::Ret => {
+                // Restore the shadow stack only *after* reading the return
+                // value out of the local. Restoring first is fine for scalars,
+                // but a returned struct points into the stack, and resetting
+                // the stack pointer here freed that memory before the caller
+                // could read it.
+                let ret_operand = match inst.operands.first() {
+                    Some(LirOperand::Reg(r)) => Some(*r),
+                    _ => None,
+                };
+                let val = match ret_operand {
+                    Some(r) => format!("(local.get {})", reg_name(r)),
+                    None => String::new(),
+                };
                 if uses_stack {
                     out.push_str("    (global.set $__brakwm_sp (local.get $__sp_save)) ");
                 }
-                match inst.operands.first() {
-                    Some(LirOperand::Reg(r)) => {
-                        out.push_str(&format!("(return (local.get {}))\n", reg_name(*r)));
-                    }
-                    _ => out.push_str("(return)\n"),
+                if ret_operand.is_some() {
+                    out.push_str(&format!("(return {val})\n"));
+                } else {
+                    out.push_str("(return)\n");
                 }
             }
             LirOpcode::Jmp => {
@@ -605,7 +683,9 @@ mod tests {
     fn lir_of(src: &str) -> LirProgram {
         let sm = brakwm_core::SourceMap::new("t.brk", src);
         let mut p = brakwm_frontend::parser::Parser::new();
-        let ast = p.parse_source(&sm).unwrap_or_else(|e| panic!("parse failed for {src:?}: {e}"));
+        let ast = p
+            .parse_source(&sm)
+            .unwrap_or_else(|e| panic!("parse failed for {src:?}: {e}"));
         let hir = brakwm_ir_hir::lower::HirLower::new().lower(ast).unwrap();
         let mut ml = brakwm_ir_mir::lower::MirLower::new();
         let mir = ml.lower(hir).unwrap();

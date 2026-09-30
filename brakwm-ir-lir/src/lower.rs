@@ -1,6 +1,6 @@
-use std::collections::HashMap;
-use brakwm_ir_mir::mir::*;
 use brakwm_core::Span;
+use brakwm_ir_mir::mir::*;
+use std::collections::HashMap;
 
 use crate::lir::*;
 
@@ -192,7 +192,12 @@ impl LirLower {
                 MirInst::Assign { dest, value, span } => {
                     self.lower_assign(*dest, value, *span, &mut insts);
                 }
-                MirInst::Call { dest, callee, args, span } => {
+                MirInst::Call {
+                    dest,
+                    callee,
+                    args,
+                    span,
+                } => {
                     let mut lir = LirInst::new(LirOpcode::Call)
                         .with_op(LirOperand::Label(callee.clone()))
                         .with_debug(*span);
@@ -232,7 +237,10 @@ impl LirLower {
                 );
             }
             MirTerminator::Branch {
-                cond, then, else_, span,
+                cond,
+                then,
+                else_,
+                span,
             } => {
                 insts.push(
                     LirInst::new(LirOpcode::Br)
@@ -257,7 +265,13 @@ impl LirLower {
         }
     }
 
-    fn lower_assign(&mut self, dest: usize, value: &MirValue, span: Span, insts: &mut Vec<LirInst>) {
+    fn lower_assign(
+        &mut self,
+        dest: usize,
+        value: &MirValue,
+        span: Span,
+        insts: &mut Vec<LirInst>,
+    ) {
         match value {
             MirValue::Local(src) => {
                 insts.push(
@@ -300,86 +314,80 @@ impl LirLower {
                         .with_debug(span),
                 );
             }
-            MirValue::BinOp { op, lhs, rhs } => {
-                match op {
-                    MirBinOp::FAdd | MirBinOp::FSub | MirBinOp::FMul | MirBinOp::FDiv => {
-                        let lir_op = match op {
-                            MirBinOp::FAdd => LirOpcode::FAdd,
-                            MirBinOp::FSub => LirOpcode::FSub,
-                            MirBinOp::FMul => LirOpcode::FMul,
-                            MirBinOp::FDiv => LirOpcode::FDiv,
-                            _ => unreachable!(),
-                        };
-                        insts.push(
-                            LirInst::new(lir_op)
-                                .with_dest(dest)
-                                .with_op(LirOperand::Reg(*lhs))
-                                .with_op(LirOperand::Reg(*rhs))
-                                .with_debug(span),
-                        );
-                    }
-                    MirBinOp::Add
-                    | MirBinOp::Sub
-                    | MirBinOp::Mul
-                    | MirBinOp::Div
-                    | MirBinOp::Mod
-                    | MirBinOp::And
-                    | MirBinOp::Or
-                    | MirBinOp::BitAnd
-                    | MirBinOp::BitOr
-                    | MirBinOp::BitXor
-                    | MirBinOp::Shl
-                    | MirBinOp::Shr => {
-                        let lir_op = match op {
-                            MirBinOp::Add => LirOpcode::Add,
-                            MirBinOp::Sub => LirOpcode::Sub,
-                            MirBinOp::Mul => LirOpcode::Mul,
-                            MirBinOp::Div => LirOpcode::Div,
-                            MirBinOp::Mod => LirOpcode::Mod,
-                            MirBinOp::And | MirBinOp::BitAnd => LirOpcode::And,
-                            MirBinOp::Or | MirBinOp::BitOr => LirOpcode::Or,
-                            MirBinOp::BitXor => LirOpcode::Xor,
-                            MirBinOp::Shl => LirOpcode::Shl,
-                            MirBinOp::Shr => LirOpcode::Shr,
-                            _ => unreachable!(),
-                        };
-                        insts.push(
-                            LirInst::new(lir_op)
-                                .with_dest(dest)
-                                .with_op(LirOperand::Reg(*lhs))
-                                .with_op(LirOperand::Reg(*rhs))
-                                .with_debug(span),
-                        );
-                    }
-                    MirBinOp::Eq
-                    | MirBinOp::Ne
-                    | MirBinOp::Lt
-                    | MirBinOp::Le
-                    | MirBinOp::Gt
-                    | MirBinOp::Ge => {
-                        let set_op = match op {
-                            MirBinOp::Eq => LirOpcode::SetEq,
-                            MirBinOp::Ne => LirOpcode::SetNe,
-                            MirBinOp::Lt => LirOpcode::SetLt,
-                            MirBinOp::Le => LirOpcode::SetLe,
-                            MirBinOp::Gt => LirOpcode::SetGt,
-                            MirBinOp::Ge => LirOpcode::SetGe,
-                            _ => unreachable!(),
-                        };
-                        insts.push(
-                            LirInst::new(LirOpcode::Cmp)
-                                .with_op(LirOperand::Reg(*lhs))
-                                .with_op(LirOperand::Reg(*rhs))
-                                .with_debug(span),
-                        );
-                        insts.push(
-                            LirInst::new(set_op)
-                                .with_dest(dest)
-                                .with_debug(span),
-                        );
-                    }
+            MirValue::BinOp { op, lhs, rhs } => match op {
+                MirBinOp::FAdd | MirBinOp::FSub | MirBinOp::FMul | MirBinOp::FDiv => {
+                    let lir_op = match op {
+                        MirBinOp::FAdd => LirOpcode::FAdd,
+                        MirBinOp::FSub => LirOpcode::FSub,
+                        MirBinOp::FMul => LirOpcode::FMul,
+                        MirBinOp::FDiv => LirOpcode::FDiv,
+                        _ => unreachable!(),
+                    };
+                    insts.push(
+                        LirInst::new(lir_op)
+                            .with_dest(dest)
+                            .with_op(LirOperand::Reg(*lhs))
+                            .with_op(LirOperand::Reg(*rhs))
+                            .with_debug(span),
+                    );
                 }
-            }
+                MirBinOp::Add
+                | MirBinOp::Sub
+                | MirBinOp::Mul
+                | MirBinOp::Div
+                | MirBinOp::Mod
+                | MirBinOp::And
+                | MirBinOp::Or
+                | MirBinOp::BitAnd
+                | MirBinOp::BitOr
+                | MirBinOp::BitXor
+                | MirBinOp::Shl
+                | MirBinOp::Shr => {
+                    let lir_op = match op {
+                        MirBinOp::Add => LirOpcode::Add,
+                        MirBinOp::Sub => LirOpcode::Sub,
+                        MirBinOp::Mul => LirOpcode::Mul,
+                        MirBinOp::Div => LirOpcode::Div,
+                        MirBinOp::Mod => LirOpcode::Mod,
+                        MirBinOp::And | MirBinOp::BitAnd => LirOpcode::And,
+                        MirBinOp::Or | MirBinOp::BitOr => LirOpcode::Or,
+                        MirBinOp::BitXor => LirOpcode::Xor,
+                        MirBinOp::Shl => LirOpcode::Shl,
+                        MirBinOp::Shr => LirOpcode::Shr,
+                        _ => unreachable!(),
+                    };
+                    insts.push(
+                        LirInst::new(lir_op)
+                            .with_dest(dest)
+                            .with_op(LirOperand::Reg(*lhs))
+                            .with_op(LirOperand::Reg(*rhs))
+                            .with_debug(span),
+                    );
+                }
+                MirBinOp::Eq
+                | MirBinOp::Ne
+                | MirBinOp::Lt
+                | MirBinOp::Le
+                | MirBinOp::Gt
+                | MirBinOp::Ge => {
+                    let set_op = match op {
+                        MirBinOp::Eq => LirOpcode::SetEq,
+                        MirBinOp::Ne => LirOpcode::SetNe,
+                        MirBinOp::Lt => LirOpcode::SetLt,
+                        MirBinOp::Le => LirOpcode::SetLe,
+                        MirBinOp::Gt => LirOpcode::SetGt,
+                        MirBinOp::Ge => LirOpcode::SetGe,
+                        _ => unreachable!(),
+                    };
+                    insts.push(
+                        LirInst::new(LirOpcode::Cmp)
+                            .with_op(LirOperand::Reg(*lhs))
+                            .with_op(LirOperand::Reg(*rhs))
+                            .with_debug(span),
+                    );
+                    insts.push(LirInst::new(set_op).with_dest(dest).with_debug(span));
+                }
+            },
             MirValue::UnOp { op, expr } => {
                 if let MirUnOp::BitNot = op {
                     insts.push(
@@ -409,7 +417,11 @@ impl LirLower {
                     );
                 }
             }
-            MirValue::GetField { object, name, field } => {
+            MirValue::GetField {
+                object,
+                name,
+                field,
+            } => {
                 insts.push(
                     LirInst::new(LirOpcode::GetField)
                         .with_dest(dest)
@@ -430,28 +442,36 @@ impl LirLower {
                 }
                 insts.push(lir);
             }
-            MirValue::EnumInit { enum_name, variant, args } => {
-                // Represent enums as synthetic struct init over __enum_<Name>:
-                // [$tag, $0, $1, ...] with the tag resolved from variant index.
-                let tag = self
-                    .enum_tags
-                    .get(enum_name.as_str())
-                    .and_then(|m| m.get(variant.as_str()))
-                    .copied()
-                    .unwrap_or(0);
+            MirValue::EnumInit {
+                enum_name,
+                variant: _,
+                args,
+            } => {
+                // Enums are a synthetic struct `__enum_<Name>` laid out as
+                // [$tag, $0, $1, ...]. MIR passes the tag as the first payload
+                // local, because StructInit can only store from a register.
                 let mut lir = LirInst::new(LirOpcode::StructInit)
                     .with_dest(dest)
                     .with_op(LirOperand::Label(format!("__enum_{}", enum_name)))
                     .with_debug(span);
                 lir = lir.with_op(LirOperand::Field("$tag".into()));
-                lir = lir.with_op(LirOperand::ImmI64(tag));
-                for (i, a) in args.iter().enumerate() {
+                if let Some(tag_reg) = args.first() {
+                    lir = lir.with_op(LirOperand::Reg(*tag_reg));
+                } else {
+                    lir = lir.with_op(LirOperand::ImmI64(0));
+                }
+                for (i, a) in args.iter().skip(1).enumerate() {
                     lir = lir.with_op(LirOperand::Field(format!("${i}")));
                     lir = lir.with_op(LirOperand::Reg(*a));
                 }
                 insts.push(lir);
             }
-            MirValue::SetField { object, name, field, value } => {
+            MirValue::SetField {
+                object,
+                name,
+                field,
+                value,
+            } => {
                 insts.push(
                     LirInst::new(LirOpcode::SetField)
                         .with_dest(dest)
@@ -488,16 +508,26 @@ mod tests {
 
     #[test]
     fn lowers_add_and_call() {
-        let lir = lower_lir("fn add(a: i32, b: i32) -> i32 { a + b } fn main() -> i32 { add(10, 20) }");
+        let lir =
+            lower_lir("fn add(a: i32, b: i32) -> i32 { a + b } fn main() -> i32 { add(10, 20) }");
         assert_eq!(lir.functions.len(), 2);
-        assert_eq!(lir.functions[0].reg_types.len(), lir.functions[0].reg_count - 1);
-        let total: usize = lir.functions.iter().flat_map(|f| &f.blocks).map(|b| b.insts.len()).sum();
+        assert_eq!(
+            lir.functions[0].reg_types.len(),
+            lir.functions[0].reg_count - 1
+        );
+        let total: usize = lir
+            .functions
+            .iter()
+            .flat_map(|f| &f.blocks)
+            .map(|b| b.insts.len())
+            .sum();
         assert!(total > 0, "no LIR instructions were produced");
     }
 
     #[test]
     fn keeps_recursive_if_body() {
-        let lir = lower_lir("fn fib(n: i32) -> i32 { if n <= 1 { n } else { fib(n - 1) + fib(n - 2) } }");
+        let lir =
+            lower_lir("fn fib(n: i32) -> i32 { if n <= 1 { n } else { fib(n - 1) + fib(n - 2) } }");
         let fib = lir.functions.iter().find(|f| f.name == "fib").expect("fib");
         let total: usize = fib.blocks.iter().map(|b| b.insts.len()).sum();
         assert!(total > 0, "fib lowered to no instructions");
