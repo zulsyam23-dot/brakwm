@@ -1,0 +1,10 @@
+[package]
+name = "brakwm-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "BrakWM core types: Span, SourceMap, Diagnostic, ContentHash"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }

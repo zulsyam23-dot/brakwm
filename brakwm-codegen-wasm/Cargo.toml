@@ -1,0 +1,16 @@
+[package]
+name = "brakwm-codegen-wasm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "LIR -> .wasm binary codegen (BrakWM WASM binary backend)"
+
+[dependencies]
+brakwm-core = { path = "../brakwm-core" }
+brakwm-ir-lir = { path = "../brakwm-ir-lir" }
+brakwm-codegen-traits = { path = "../brakwm-codegen-traits" }
+
+[dev-dependencies]
+brakwm-frontend = { path = "../brakwm-frontend" }
+brakwm-ir-hir = { path = "../brakwm-ir-hir" }
+brakwm-ir-mir = { path = "../brakwm-ir-mir" }

@@ -1,0 +1,16 @@
+fn add(a: i32, b: i32) -> i32 {
+    a + b
+}
+
+fn fib(n: i32) -> i32 {
+    if n <= 1 { n } else { add(fib(n - 1), fib(n - 2)) }
+}
+
+fn main() -> i32 {
+    let x = 10;
+    let mut i = 0;
+    while i < 5 {
+        i = i + 1;
+    }
+    add(x, i)
+}

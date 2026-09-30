@@ -1,0 +1,19 @@
+/target/
+*.exe
+*.o
+*.obj
+*.pdb
+*.d
+*.rlib
+
+# Laporan dan catatan sementara
+laporan*.md
+!laporan.md
+ERROR_HANDLING_*.md
+test.brk
+
+# Alat bantu dan konfigurasi lokal
+/.qodo/
+
+# Hasil build; dapat dibuat ulang dengan `brakwm build`
+*.wasm

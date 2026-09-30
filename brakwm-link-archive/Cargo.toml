@@ -1,0 +1,19 @@
+[package]
+name = "brakwm-link-archive"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "BrakWM archive (.brka) reader/writer and multi-object linking"
+
+[dependencies]
+brakwm-core = { path = "../brakwm-core" }
+brakwm-link-wasm = { path = "../brakwm-link-wasm" }
+brakwm-link-traits = { path = "../brakwm-link-traits" }
+
+[dev-dependencies]
+brakwm-frontend = { path = "../brakwm-frontend" }
+brakwm-ir-hir = { path = "../brakwm-ir-hir" }
+brakwm-ir-mir = { path = "../brakwm-ir-mir" }
+brakwm-ir-lir = { path = "../brakwm-ir-lir" }
+brakwm-codegen-wasm = { path = "../brakwm-codegen-wasm" }
+brakwm-codegen-traits = { path = "../brakwm-codegen-traits" }

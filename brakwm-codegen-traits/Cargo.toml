@@ -1,0 +1,10 @@
+[package]
+name = "brakwm-codegen-traits"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "CodegenBackend trait for BrakWM code generation (WASM targets)"
+
+[dependencies]
+brakwm-core = { path = "../brakwm-core" }
+brakwm-ir-lir = { path = "../brakwm-ir-lir" }

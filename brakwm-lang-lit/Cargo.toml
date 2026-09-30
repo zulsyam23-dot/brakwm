@@ -1,0 +1,21 @@
+[package]
+name = "brakwm-lang-lit"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "BrakWM '.lit' language backend: Lit compiler tool"
+
+[[bin]]
+name = "brakwm-lit"
+path = "src/main.rs"
+
+[dependencies]
+brakwm-core = { path = "../brakwm-core" }
+brakwm-frontend = { path = "../brakwm-frontend" }
+brakwm-ir-ast = { path = "../brakwm-ir-ast" }
+brakwm-ir-hir = { path = "../brakwm-ir-hir" }
+brakwm-ir-mir = { path = "../brakwm-ir-mir" }
+brakwm-ir-lir = { path = "../brakwm-ir-lir" }
+brakwm-codegen-traits = { path = "../brakwm-codegen-traits" }
+brakwm-codegen-wasm = { path = "../brakwm-codegen-wasm" }
+serde = { workspace = true }

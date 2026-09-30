@@ -1,0 +1,16 @@
+[package]
+name = "brakwm-test"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "BrakWM testing harness: run .brk/.lit samples and compare output"
+
+[dependencies]
+brakwm-core = { path = "../brakwm-core" }
+brakwm-ir-ast = { path = "../brakwm-ir-ast" }
+brakwm-ir-hir = { path = "../brakwm-ir-hir" }
+brakwm-ir-mir = { path = "../brakwm-ir-mir" }
+brakwm-ir-lir = { path = "../brakwm-ir-lir" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }

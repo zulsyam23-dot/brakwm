@@ -1,0 +1,11 @@
+[package]
+name = "brakwm-opt-traits"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Optimization pass traits and PassManager for BrakWM"
+
+[dependencies]
+brakwm-core = { path = "../brakwm-core" }
+brakwm-ir-lir = { path = "../brakwm-ir-lir" }
+libloading = { workspace = true }

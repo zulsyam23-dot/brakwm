@@ -1,0 +1,10 @@
+[package]
+name = "brakwm-opt-utils"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Shared CFG utilities for BrakWM optimization passes"
+
+[dependencies]
+brakwm-core = { path = "../brakwm-core" }
+brakwm-ir-lir = { path = "../brakwm-ir-lir" }

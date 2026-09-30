@@ -1,0 +1,11 @@
+[package]
+name = "brakwm-frontend"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "BrakWM lexer and parser"
+
+[dependencies]
+brakwm-core = { path = "../brakwm-core" }
+brakwm-ir-ast = { path = "../brakwm-ir-ast" }
+serde = { workspace = true }

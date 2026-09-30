@@ -1,0 +1,12 @@
+[package]
+name = "brakwm-opt-cp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Copy propagation pass for BrakWM"
+
+[dependencies]
+brakwm-core = { path = "../brakwm-core" }
+brakwm-ir-lir = { path = "../brakwm-ir-lir" }
+brakwm-opt-traits = { path = "../brakwm-opt-traits" }
+brakwm-opt-utils = { path = "../brakwm-opt-utils" }

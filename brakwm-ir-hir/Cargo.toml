@@ -1,0 +1,13 @@
+[package]
+name = "brakwm-ir-hir"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+brakwm-core = { path = "../brakwm-core" }
+brakwm-ir-ast = { path = "../brakwm-ir-ast" }
+serde = { workspace = true }
+
+[dev-dependencies]
+brakwm-frontend = { path = "../brakwm-frontend" }

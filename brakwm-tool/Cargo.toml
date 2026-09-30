@@ -1,0 +1,40 @@
+[package]
+name = "brakwm-tool"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "BrakWM CLI tool"
+
+[[bin]]
+name = "brakwm"
+path = "src/main.rs"
+
+[dependencies]
+brakwm-core = { path = "../brakwm-core" }
+brakwm-frontend = { path = "../brakwm-frontend" }
+brakwm-ir-ast = { path = "../brakwm-ir-ast" }
+brakwm-ir-hir = { path = "../brakwm-ir-hir" }
+brakwm-ir-mir = { path = "../brakwm-ir-mir" }
+brakwm-ir-lir = { path = "../brakwm-ir-lir" }
+brakwm-codegen-traits = { path = "../brakwm-codegen-traits" }
+brakwm-codegen-wat = { path = "../brakwm-codegen-wat" }
+brakwm-codegen-wasm = { path = "../brakwm-codegen-wasm" }
+brakwm-link-traits = { path = "../brakwm-link-traits" }
+brakwm-link-wasm = { path = "../brakwm-link-wasm" }
+brakwm-link-archive = { path = "../brakwm-link-archive" }
+brakwm-bitcode = { path = "../brakwm-bitcode" }
+brakwm-opt-traits = { path = "../brakwm-opt-traits" }
+brakwm-opt-dce = { path = "../brakwm-opt-dce" }
+brakwm-opt-cp = { path = "../brakwm-opt-cp" }
+brakwm-opt-gvn = { path = "../brakwm-opt-gvn" }
+brakwm-opt-inline = { path = "../brakwm-opt-inline" }
+brakwm-opt-licm = { path = "../brakwm-opt-licm" }
+brakwm-opt-jt = { path = "../brakwm-opt-jt" }
+brakwm-opt-tco = { path = "../brakwm-opt-tco" }
+brakwm-opt-fold = { path = "../brakwm-opt-fold" }
+clap = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+
+[dev-dependencies]
+brakwm-test = { path = "../brakwm-test" }

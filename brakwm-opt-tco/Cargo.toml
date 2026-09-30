@@ -1,0 +1,11 @@
+[package]
+name = "brakwm-opt-tco"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Tail call optimization pass for BrakWM"
+
+[dependencies]
+brakwm-core = { path = "../brakwm-core" }
+brakwm-ir-lir = { path = "../brakwm-ir-lir" }
+brakwm-opt-traits = { path = "../brakwm-opt-traits" }
